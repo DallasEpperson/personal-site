@@ -71,6 +71,21 @@ const TrackLine = ({ hike }) => {
   const [coordinates, setCoordinates] = useState(hike.preview || []);
   const [isHighRes, setIsHighRes] = useState(false);
 
+  /** Formats the UTC date into a localized string with a short timezone code.
+   * e.g., "Aug 14, 2018, 5:00 PM EDT"
+   */
+  const formatHikeTime = (dateStr, tz) => {
+    return new Intl.DateTimeFormat('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: tz,
+      timeZoneName: 'short',
+    }).format(new Date(dateStr));
+  };
+
   const loadHighResTrack = () => {
     if (isHighRes) return;
     fetch(hike.trackUrl)
@@ -100,8 +115,8 @@ const TrackLine = ({ hike }) => {
         <Typography variant="body2" sx={{ fontWeight: 700 }}>
           {hike.name}
         </Typography>
-        <Typography variant="caption" component="div" sx={{ color: 'text.secondary' }}>
-          {new Date(hike.date).toLocaleDateString()} • {hike.type}
+        <Typography variant="caption" display="block" color="text.secondary">
+            {formatHikeTime(hike.date, hike.tz)} • {hike.type}
         </Typography>
         <Typography variant="caption" sx={{ fontWeight: 600, color: 'primary.main' }}>
           {metersToMiles(hike.distanceMeters)} miles

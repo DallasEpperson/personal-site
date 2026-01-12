@@ -88,6 +88,28 @@ const minifyManifestEntry = (entry) => {
              .replace(/\[\s+([\s\S]*?)\s+\]/g, (match) => match.replace(/\s+/g, ''));
 };
 
+/** Converts a UTC ISO string to a naïve local string for the MUI datetime-local picker.
+ */
+const utcToLocalNaive = (utcString, timezone) => {
+  if (!utcString) return '';
+  const date = new Date(utcString);
+  const formatter = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: timezone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false
+  });
+  const parts = formatter.formatToParts(date);
+  const hash = parts.reduce((acc, part) => ({ ...acc, [part.type]: part.value }), {});
+  return `${hash.year}-${hash.month}-${hash.day}T${hash.hour}:${hash.minute}`;
+};
+
+/** Converts a naïve local string back to a UTC ISO string.
+ */
+const localNaiveToUtc = (localNaive, timezone) => {
+  if (!localNaive) return '';
+  return new Date(new Date(localNaive).toLocaleString('en-US', { timeZone: timezone })).toISOString();
+};
+
 const ImportTool = () => {
   const [rawPoints, setRawPoints] = useState([]); 
   const [metadata, setMetadata] = useState({ name: '', date: '', tz: '' });
@@ -112,10 +134,29 @@ const ImportTool = () => {
       if (text.includes('<gpx')) {
         const gpx = new gpxParser();
         gpx.parse(text);
+        
         if (!gpx.tracks[0]) throw new Error("GPX file contains no tracks.");
-        points = gpx.tracks[0].points.map(p => ({ x: p.lat, y: p.lon, ele: p.ele }));
+        
+        points = gpx.tracks[0].points.map(p => ({ 
+          x: p.lat, 
+          y: p.lon, 
+          ele: p.ele 
+        }));
+        
         name = gpx.tracks[0].name || name;
-        rawDate = gpx.tracks[0].time ? gpx.tracks[0].time.toString() : rawDate;
+
+        const gpxDate = gpx.metadata?.time || 
+                        gpx.tracks[0].points[0]?.time || 
+                        gpx.tracks[0].time;
+
+        rawDate = gpxDate ? gpxDate.toString() : new Date().toISOString();
+        const typeMap = {
+          'walking': 'Walk',
+          'hiking': 'Hike',
+          'cycling': 'Bike ride'
+        };
+        const stravaType = gpx.tracks[0].type?.toLowerCase();
+        if (typeMap[stravaType]) setActivityType(typeMap[stravaType]);
       } else {
         const json = JSON.parse(text);
         if (json.features && json.features[0].geometry.coordinates) {
@@ -136,7 +177,10 @@ const ImportTool = () => {
       
       const tz = tzlookup(points[0].x, points[0].y);
       setRawPoints(points);
-      setMetadata({ name, date: formatToDateTimeLocal(rawDate), tz });
+      setMetadata({
+        name,
+        date: new Date(rawDate).toISOString(),
+        tz });
     } catch (err) {
       setError(`Import Failed: ${err.message}`);
       console.error(err);
@@ -162,10 +206,16 @@ const ImportTool = () => {
 
   const generateId = () => {
     if (!metadata.date || !metadata.name) return 'pending';
-    const datePart = metadata.date.replace(/[:]/g, ''); 
+    
+    const utcPart = metadata.date
+      .replace(/[-:]/g, '')  // Remove dashes and colons
+      .split('.')[0]         // Remove milliseconds
+      .replace('T', '-');    // Separator
+    
     const nameSlug = metadata.name.toLowerCase().trim()
       .replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-').replace(/^-+|-+$/g, '');
-    return `${datePart}-${nameSlug}`;
+  
+    return `${utcPart}-${nameSlug}`;
   };
 
   /** Manifest Entry Generator. 
@@ -183,6 +233,7 @@ const ImportTool = () => {
       id: fileName,
       name: metadata.name,
       date: metadata.date,
+      tz: metadata.tz,
       distanceMeters: Math.round(rawDistMeters),
       elevationGainMeters: gainMeters ? Math.round(gainMeters) : undefined,
       type: activityType,
@@ -278,13 +329,16 @@ const ImportTool = () => {
                       onChange={(e) => setMetadata({...metadata, name: e.target.value})} 
                     />
                     <TextField 
-                      label="Date & Local Time" 
+                      label={`Local Time (${metadata.tz})`}
                       type="datetime-local" 
                       fullWidth 
-                      value={metadata.date}
-                      onChange={(e) => setMetadata({...metadata, date: e.target.value})} 
+                      value={utcToLocalNaive(metadata.date, metadata.tz)}
+                      onChange={(e) => {
+                        const newUtc = localNaiveToUtc(e.target.value, metadata.tz);
+                        setMetadata({...metadata, date: newUtc});
+                      }} 
                       InputLabelProps={{ shrink: true }}
-                      helperText={`Timezone: ${metadata.tz || 'Detecting...'}`}
+                      helperText={`Stored UTC: ${metadata.date}`}
                     />
                     <FormControl fullWidth>
                       <InputLabel>Activity Type</InputLabel>
