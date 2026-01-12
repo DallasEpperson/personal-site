@@ -11,6 +11,9 @@ import tzlookup from 'tz-lookup';
 import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
+/** Helper to auto-zoom the map when a new track is loaded.
+ * Triggers when the raw input points change.
+ */
 function MapBounds({ points }) {
   const map = useMap();
   
@@ -29,34 +32,50 @@ function MapBounds({ points }) {
   return null;
 }
 
-const calculateDistance = (coords) => {
-    if (coords.length < 2) return 0;
-    let total = 0;
-    const R = 3958.8; // Radius of Earth in miles
-    for (let i = 0; i < coords.length - 1; i++) {
-      const [lat1, lon1] = coords[i];
-      const [lat2, lon2] = coords[i + 1];
-      const dLat = (lat2 - lat1) * Math.PI / 180;
-      const dLon = (lon2 - lon1) * Math.PI / 180;
-      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                Math.sin(dLon / 2) * Math.sin(dLon / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      total += R * c;
-    }
-    return total;
+/** Calculate total elevation gain from an array of points.
+ * @param {Array<{ele: number}>} points - Array of points with elevation data.
+ * @returns {number} - Elevation gain in meters.
+ */
+const calculateElevationGain = (points) => {
+  if (points.length < 2) return 0;
+  let gain = 0;
+  for (let i = 1; i < points.length; i++) {
+      const diff = points[i].ele - points[i - 1].ele;
+      if (diff > 0) gain += diff;
+  }
+  return gain;
 };
 
-/** Helper to ensure dates conform to yyyy-MM-ddThh:mm for HTML5 input
- * @param {string} dateStr - Input date string in various formats
- * @returns {string} - Formatted date string suitable for datetime-local input
+/** Calculates Great Circle distance using Haversine formula.
+ * @param {Array<[number, number]>} coords - Array of [lat, lon] pairs.
+ * @returns {number} - Distance in meters.
+ */
+const calculateDistanceInMeters = (coords) => {
+  if (coords.length < 2) return 0;
+  let total = 0;
+  const R = 6371000; // Radius of Earth in meters
+  for (let i = 0; i < coords.length - 1; i++) {
+    const [lat1, lon1] = coords[i];
+    const [lat2, lon2] = coords[i + 1];
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    total += R * c;
+  }
+  return total;
+};
+
+/** Helper to ensure dates conform to yyyy-MM-ddThh:mm for HTML5 input.
+ * @param {string} dateStr - Input date string in various formats.
+ * @returns {string} - Formatted date string suitable for datetime-local input.
  */
 const formatToDateTimeLocal = (dateStr) => {
     if (!dateStr) return '';
     const cleanDate = dateStr.replace(/\./g, '-');
-    // If it's just a date YYYY-MM-DD, add noon as default time
     if (cleanDate.length === 10) return `${cleanDate}T12:00`;
-    // If it's full ISO, truncate to minutes
     return cleanDate.substring(0, 16);
 };
 
@@ -68,6 +87,8 @@ const ImportTool = () => {
   const [epsilon, setEpsilon] = useState(0.00002); 
   const [error, setError] = useState(null);
 
+  /** Main file processing logic. Handles GPX, Legacy GeoJSON, and simple JSON arrays.
+   */
   const processFile = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -83,7 +104,7 @@ const ImportTool = () => {
         const gpx = new gpxParser();
         gpx.parse(text);
         if (!gpx.tracks[0]) throw new Error("GPX file contains no tracks.");
-        points = gpx.tracks[0].points.map(p => ({ x: p.lat, y: p.lon }));
+        points = gpx.tracks[0].points.map(p => ({ x: p.lat, y: p.lon, ele: p.ele }));
         name = gpx.tracks[0].name || name;
         rawDate = gpx.tracks[0].time ? gpx.tracks[0].time.toString() : rawDate;
       } else {
@@ -106,17 +127,14 @@ const ImportTool = () => {
       
       const tz = tzlookup(points[0].x, points[0].y);
       setRawPoints(points);
-      setMetadata({ 
-        name, 
-        date: formatToDateTimeLocal(rawDate),
-        tz 
-      });
+      setMetadata({ name, date: formatToDateTimeLocal(rawDate), tz });
     } catch (err) {
       setError(`Import Failed: ${err.message}`);
       console.error(err);
     }
   };
 
+  // Convert {x,y} to [lat,lon] for Leaflet
   const ghostPoints = useMemo(() => rawPoints.map(p => [p.x, p.y]), [rawPoints]);
   
   const simplifiedPoints = useMemo(() => {
@@ -125,61 +143,67 @@ const ImportTool = () => {
     return simplified.map(p => [p.x, p.y]);
   }, [rawPoints, epsilon]);
 
-  const rawDist = useMemo(() => calculateDistance(ghostPoints), [ghostPoints]);
-  const simplifiedDist = useMemo(() => calculateDistance(simplifiedPoints), [simplifiedPoints]);
-  const mileageLossFeet = (rawDist - simplifiedDist) * 5280;
+  const rawDistMeters = useMemo(() => calculateDistanceInMeters(ghostPoints), [ghostPoints]);
+  const simplifiedDistMeters = useMemo(() => calculateDistanceInMeters(simplifiedPoints), [simplifiedPoints]);
+  
+  // Convert to miles/feet for UI display only
+  const rawDistMi = rawDistMeters * 0.000621371;
+  const simplifiedDistMi = simplifiedDistMeters * 0.000621371;
+  const mileageLossFeet = (rawDistMi - simplifiedDistMi) * 5280;
 
   const generateId = () => {
     if (!metadata.date || !metadata.name) return 'pending';
-    
-    const datePart = metadata.date.replace(':', ''); 
-    
-    const nameSlug = metadata.name
-      .toLowerCase()
-      .trim()
-      .replace(/[^\w\s-]/g, '') // Remove non-word chars (except spaces/hyphens)
-      .replace(/[\s_-]+/g, '-') // Replace spaces/underscores with single hyphen
-      .replace(/^-+|-+$/g, '');  // Trim hyphens from ends
-  
+    const datePart = metadata.date.replace(/[:]/g, ''); 
+    const nameSlug = metadata.name.toLowerCase().trim()
+      .replace(/[^\w\s-]/g, '').replace(/[\s_-]+/g, '-').replace(/^-+|-+$/g, '');
     return `${datePart}-${nameSlug}`;
   };
 
-  const handleExport = () => {
+  /** Manifest Entry Generator. 
+   * Used by both handleExport and the UI Preview.
+   */
+  const manifestEntry = useMemo(() => {
+    if (rawPoints.length === 0) return null;
+    
+    const lats = rawPoints.map(p => p.x);
+    const lons = rawPoints.map(p => p.y);
+    const gainMeters = rawPoints[0]?.ele !== undefined ? calculateElevationGain(rawPoints) : null;
     const fileName = generateId();
-    if (fileName === 'pending') {
+
+    return {
+      id: fileName,
+      name: metadata.name,
+      date: metadata.date,
+      distanceMeters: Math.round(rawDistMeters),
+      elevationGainMeters: gainMeters ? Math.round(gainMeters) : undefined,
+      type: activityType,
+      hasBlog: hasBlog,
+      bounds: [
+        [Math.min(...lats), Math.min(...lons)],
+        [Math.max(...lats), Math.max(...lons)]
+      ], 
+      preview: simplify(rawPoints, 0.002, true).map(p => [p.x, p.y]),
+      trackUrl: `/data/tracks/${fileName}.json`
+    };
+  }, [rawPoints, metadata, activityType, hasBlog, rawDistMeters]);
+
+  const handleExport = () => {
+    if (generateId() === 'pending') {
       alert("Please ensure Name and Date are set.");
       return;
     }
     
-    const lats = rawPoints.map(p => p.x);
-    const lons = rawPoints.map(p => p.y);
-    const trueBounds = [
-      [Math.min(...lats), Math.min(...lons)],
-      [Math.max(...lats), Math.max(...lons)]
-    ];
-  
-    const previewPoints = simplify(rawPoints, 0.002, true).map(p => [p.x, p.y]);
-  
+    // Download the simplified track JSON
     const trackData = JSON.stringify(simplifiedPoints);
     const blob = new Blob([trackData], { type: 'application/json' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `${fileName}.json`;
+    link.download = `${manifestEntry.id}.json`;
     link.click();
   
-    const entry = {
-      id: fileName,
-      name: metadata.name,
-      date: metadata.date,
-      type: activityType,
-      hasBlog: hasBlog,
-      bounds: trueBounds, 
-      preview: previewPoints,
-      trackUrl: `/data/tracks/${fileName}.json`
-    };
-    
-    navigator.clipboard.writeText(JSON.stringify(entry, null, 2) + ",");
-    alert(`Exported: ${fileName}.json\nManifest entry copied to clipboard.`);
+    // Copy the manifest entry to clipboard
+    navigator.clipboard.writeText(JSON.stringify(manifestEntry, null, 2) + ",");
+    alert(`Exported: ${manifestEntry.id}.json\nManifest entry copied to clipboard.`);
   };
 
   return (
@@ -215,7 +239,7 @@ const ImportTool = () => {
                     <Typography variant="caption" color="text.secondary">MILEAGE & PRECISION</Typography>
                     <Stack direction="row" justifyContent="space-between" sx={{ mt: 1 }}>
                       <Box>
-                        <Typography variant="h6">{simplifiedDist.toFixed(2)} mi</Typography>
+                        <Typography variant="h6">{simplifiedDistMi.toFixed(2)} mi</Typography>
                         <Typography variant="caption">Simplified</Typography>
                       </Box>
                       <Box sx={{ textAlign: 'right' }}>
@@ -277,19 +301,7 @@ const ImportTool = () => {
                 </Button>
 
                 <Paper variant="outlined" sx={{ p: 1, bgcolor: 'grey.900', color: 'lime', fontSize: '10px', overflowX: 'auto' }}>
-                <pre>{`{
-  "id": "${generateId()}",
-  "name": "${metadata.name}",
-  "date": "${metadata.date}",
-  "type": "${activityType}",
-  "hasBlog": ${hasBlog},
-  "bounds": ${JSON.stringify([
-    [Math.min(...rawPoints.map(p=>p.x)), Math.min(...rawPoints.map(p=>p.y))],
-    [Math.max(...rawPoints.map(p=>p.x)), Math.max(...rawPoints.map(p=>p.y))]
-  ])},
-  "preview": ${JSON.stringify(simplify(rawPoints, 0.002, true).map(p => [p.x, p.y]))},
-  "trackUrl": "/data/tracks/${generateId()}.json"
-},`}</pre>
+                    <pre>{JSON.stringify(manifestEntry, null, 2)},</pre>
                 </Paper>
               </Stack>
             )}
