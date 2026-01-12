@@ -1,51 +1,56 @@
-import React from 'react';
-import { Box, Typography, Container } from '@mui/material';
-import { MapContainer, TileLayer, LayersControl } from 'react-leaflet';
+import React, { useEffect, useState } from 'react';
+import { Container, Typography, Box, CircularProgress } from '@mui/material';
+import { MapContainer, TileLayer, Polyline, LayersControl, Tooltip } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
-import L from 'leaflet';
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
-let DefaultIcon = L.icon({
-    iconUrl: icon,
-    shadowUrl: iconShadow,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41]
-});
-L.Marker.prototype.options.icon = DefaultIcon;
+const { Overlay } = LayersControl;
 
-const GroundTrack = () => {
-  // Center roughly on the Blue Ridge for now
-  const position = [35.5951, -82.5515];
+const GroundTracks = () => {
+  const [manifest, setManifest] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch('/data/tracks/index.json')
+      .then(res => res.json())
+      .then(data => {
+        setManifest(data);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error("Failed to load manifest:", err);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) return (
+    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 10 }}>
+      <CircularProgress />
+    </Box>
+  );
+
+  const activityTypes = ['Hike', 'Bike ride', 'Backpacking', 'Walk'];
 
   return (
-    <Container maxWidth="xl" sx={{ height: 'calc(100vh - 160px)', py: 2 }}>
-      <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="h4" sx={{ fontWeight: 700 }}>
-          Ground Tracks
-        </Typography>
-        <Typography variant="body2" color="text.secondary">
-          Exploring the world via GPS telemetry
-        </Typography>
-      </Box>
-
-      <Box sx={{ 
-        height: '100%', 
-        width: '100%', 
-        borderRadius: 2, 
-        overflow: 'hidden',
-        border: '1px solid',
-        borderColor: 'divider',
-        boxShadow: 3
-      }}>
-        <MapContainer center={position} zoom={11} style={{ height: '100%', width: '100%' }}>
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+    <Container maxWidth="xl" sx={{ height: 'calc(100vh - 120px)', py: 2 }}>
+      <Typography variant="h4" sx={{ mb: 2, fontWeight: 800 }}>Ground Tracks</Typography>
+      
+      <Box sx={{ height: '100%', borderRadius: 4, overflow: 'hidden', border: '1px solid divider' }}>
+        <MapContainer center={[35.5951, -82.5515]} zoom={11} style={{ height: '100%' }}>
+          <TileLayer 
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" 
+            attribution='&copy; OpenStreetMap contributors' 
           />
-          
+
           <LayersControl position="topright">
-            {/* TODO depperson add Hike/Bike/Backpacking overlays here next */}
+            {activityTypes.map(type => (
+              <Overlay checked name={type} key={type}>
+                <Box component="span">
+                  {manifest.filter(h => h.type === type).map(hike => (
+                    <TrackLine key={hike.id} hike={hike} />
+                  ))}
+                </Box>
+              </Overlay>
+            ))}
           </LayersControl>
         </MapContainer>
       </Box>
@@ -53,4 +58,43 @@ const GroundTrack = () => {
   );
 };
 
-export default GroundTrack;
+const TrackLine = ({ hike }) => {
+    const [coordinates, setCoordinates] = useState(hike.preview || []);
+    const [isHighRes, setIsHighRes] = useState(false);
+  
+    const loadHighResTrack = () => {
+      if (isHighRes) return;
+      fetch(hike.trackUrl)
+        .then(res => res.json())
+        .then(data => {
+          setCoordinates(data);
+          setIsHighRes(true);
+        });
+    };
+  
+    return (
+      <Polyline
+        positions={coordinates}
+        pathOptions={{ 
+          color: hike.type === 'Bike ride' ? '#ef5350' : '#42a5f5', 
+          weight: isHighRes ? 4 : 2,
+          opacity: isHighRes ? 1 : 0.6
+        }}
+        eventHandlers={{
+          mouseover: loadHighResTrack,
+          click: () => {
+            if (hike.hasBlog) window.location.href = `/blog/${hike.id}`;
+          }
+        }}
+      >
+        <Tooltip sticky>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>{hike.name}</Typography>
+          <Typography variant="caption">
+              {new Date(hike.date).toLocaleDateString()} • {hike.type}
+          </Typography>
+        </Tooltip>
+      </Polyline>
+    );
+  };
+
+export default GroundTracks;

@@ -129,27 +129,50 @@ const ImportTool = () => {
   const simplifiedDist = useMemo(() => calculateDistance(simplifiedPoints), [simplifiedPoints]);
   const mileageLossFeet = (rawDist - simplifiedDist) * 5280;
 
-  const generateId = () => metadata.name.toLowerCase().replace(/\s+/g, '-');
+  const generateId = () => {
+    if (!metadata.date || !metadata.name) return 'pending';
+    
+    const datePart = metadata.date.replace(':', ''); 
+    
+    const nameSlug = metadata.name
+      .toLowerCase()
+      .trim()
+      .replace(/[^\w\s-]/g, '') // Remove non-word chars (except spaces/hyphens)
+      .replace(/[\s_-]+/g, '-') // Replace spaces/underscores with single hyphen
+      .replace(/^-+|-+$/g, '');  // Trim hyphens from ends
+  
+    return `${datePart}-${nameSlug}`;
+  };
 
   const handleExport = () => {
     const fileName = generateId();
+    if (fileName === 'pending') {
+      alert("Please ensure Name and Date are set.");
+      return;
+    }
+    
     const trackData = JSON.stringify(simplifiedPoints);
     const blob = new Blob([trackData], { type: 'application/json' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = `${fileName}.json`;
     link.click();
-
+  
+    const previewPoints = simplify(rawPoints, 0.005, true).map(p => [p.x, p.y]);
+  
     const entry = {
       id: fileName,
       name: metadata.name,
       date: metadata.date,
       type: activityType,
       hasBlog: hasBlog,
+      bounds: simplifiedPoints.length > 0 ? [simplifiedPoints[0], simplifiedPoints[simplifiedPoints.length - 1]] : [],
+      preview: previewPoints,
       trackUrl: `/data/tracks/${fileName}.json`
     };
+    
     navigator.clipboard.writeText(JSON.stringify(entry, null, 2) + ",");
-    alert("Track exported! Manifest entry copied to clipboard.");
+    alert(`Exported: ${fileName}.json\nManifest entry copied to clipboard.`);
   };
 
   return (
@@ -247,12 +270,14 @@ const ImportTool = () => {
                 </Button>
 
                 <Paper variant="outlined" sx={{ p: 1, bgcolor: 'grey.900', color: 'lime', fontSize: '10px', overflowX: 'auto' }}>
-                  <pre>{`{
+                <pre>{`{
   "id": "${generateId()}",
   "name": "${metadata.name}",
   "date": "${metadata.date}",
   "type": "${activityType}",
   "hasBlog": ${hasBlog},
+  "bounds": ${JSON.stringify(simplifiedPoints.length > 0 ? [simplifiedPoints[0], simplifiedPoints[simplifiedPoints.length - 1]] : [])},
+  "preview": ${JSON.stringify(simplify(rawPoints, 0.005, true).map(p => [p.x, p.y]))},
   "trackUrl": "/data/tracks/${generateId()}.json"
 },`}</pre>
                 </Paper>
