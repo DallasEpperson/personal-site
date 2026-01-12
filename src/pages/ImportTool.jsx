@@ -11,11 +11,21 @@ import tzlookup from 'tz-lookup';
 import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
-function MapBounds({ bounds }) {
+function MapBounds({ points }) {
   const map = useMap();
+  
   useEffect(() => { 
-    if (bounds?.length) map.fitBounds(bounds, { padding: [50, 50] }); 
-  }, [bounds, map]);
+    if (points?.length) {
+      const lats = points.map(p => p.x);
+      const lons = points.map(p => p.y);
+      const bounds = [
+        [Math.min(...lats), Math.min(...lons)],
+        [Math.max(...lats), Math.max(...lons)]
+      ];
+      map.fitBounds(bounds, { padding: [50, 50] }); 
+    }
+  }, [points, map]);
+  
   return null;
 }
 
@@ -265,7 +275,7 @@ const ImportTool = () => {
                     positions={simplifiedPoints} 
                     pathOptions={{ color: '#2196f3', weight: 4 }} 
                 />
-                <MapBounds bounds={simplifiedPoints} />
+                <MapBounds points={rawPoints} />
               </>
             )}
           </MapContainer>
