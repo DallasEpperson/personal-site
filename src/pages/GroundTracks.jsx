@@ -80,25 +80,27 @@ const GroundTracks = () => {
   };
 
   const MapClickHandler = () => {
-    useMapEvents({
+    const map = useMapEvents({
       click: (e) => {
-        const tolerance = 0.0005; // TODO depperson maybe adjust based on zoom level??
-        
+        const currentZoom = map.getZoom();
+        const tolerance = (40 / Math.pow(2, currentZoom)); 
+  
         const nearby = manifest.filter(hike => {
           const [[minLat, minLng], [maxLat, maxLng]] = hike.bounds;
           if (e.latlng.lat < minLat - tolerance || e.latlng.lat > maxLat + tolerance ||
               e.latlng.lng < minLng - tolerance || e.latlng.lng > maxLng + tolerance) {
             return false;
           }
-
+  
           const pointsToCheck = loadedData[hike.id] || hike.preview;
           return isPointNearLine(e.latlng, pointsToCheck, tolerance);
         });
-
+  
         if (nearby.length === 1) {
           handleHikeSelect(nearby[0]);
         } else if (nearby.length > 1) {
-          setCandidates(nearby);
+          const sorted = [...nearby].sort((a, b) => new Date(b.date) - new Date(a.date));
+          setCandidates(sorted);
           setAnchorEl({ mouseX: e.containerPoint.x, mouseY: e.containerPoint.y });
         }
       },
