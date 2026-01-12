@@ -117,6 +117,7 @@ const ImportTool = () => {
   const [hasBlog, setHasBlog] = useState(false);
   const [epsilon, setEpsilon] = useState(0.00002); 
   const [error, setError] = useState(null);
+  const [trimRange, setTrimRange] = useState([0, 100]);
 
   /** Main file processing logic. Handles GPX, Legacy GeoJSON, and simple JSON arrays.
    */
@@ -187,14 +188,21 @@ const ImportTool = () => {
     }
   };
 
+  const trimmedRawPoints = useMemo(() => {
+    if (rawPoints.length === 0) return [];
+    const startIdx = Math.floor((trimRange[0] / 100) * (rawPoints.length - 1));
+    const endIdx = Math.ceil((trimRange[1] / 100) * (rawPoints.length - 1));
+    return rawPoints.slice(startIdx, endIdx + 1);
+  }, [rawPoints, trimRange]);
+
   // Convert {x,y} to [lat,lon] for Leaflet
   const ghostPoints = useMemo(() => rawPoints.map(p => [p.x, p.y]), [rawPoints]);
   
   const simplifiedPoints = useMemo(() => {
-    if (rawPoints.length === 0) return [];
-    const simplified = simplify(rawPoints, epsilon, true);
+    if (trimmedRawPoints.length === 0) return [];
+    const simplified = simplify(trimmedRawPoints, epsilon, true);
     return simplified.map(p => [p.x, p.y]);
-  }, [rawPoints, epsilon]);
+  }, [trimmedRawPoints, epsilon]);
 
   const rawDistMeters = useMemo(() => calculateDistanceInMeters(ghostPoints), [ghostPoints]);
   const simplifiedDistMeters = useMemo(() => calculateDistanceInMeters(simplifiedPoints), [simplifiedPoints]);
@@ -307,6 +315,65 @@ const handleExport = async () => {
 
             {rawPoints.length > 0 && (
               <Stack spacing={3}>
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="overline" color="inherit" sx={{ fontWeight: 'bold' }}>
+                    Privacy Trim (Start & End)
+                  </Typography>
+                  <Stack direction="column" spacing={2}>
+                    <Slider
+                      value={trimRange}
+                      step={0.1}
+                      min={0}
+                      max={100}
+                      onChange={(_, newValue) => setTrimRange(newValue)}
+                      sx={{ flexGrow: 1 }}
+                    />
+                    <Stack direction="row" spacing={2} justifyContent="center">
+                      <TextField
+                        size="small"
+                        label="Start %"
+                        type="number"
+                        slotProps={{
+                          htmlInput: { 
+                            step: 0.1, 
+                            min: 0, 
+                            max: trimRange[1],
+                            inputMode: 'decimal' 
+                          }
+                        }}
+                        value={trimRange[0]}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? 0 : parseFloat(e.target.value);
+                          setTrimRange([val, trimRange[1]]);
+                        }}
+                        sx={{ width: 100 }}
+                      />
+                      <TextField
+                        size="small"
+                        label="End %"
+                        type="number"
+                        slotProps={{
+                          htmlInput: { 
+                            step: 0.1, 
+                            min: trimRange[0], 
+                            max: 100,
+                            inputMode: 'decimal' 
+                          }
+                        }}
+                        value={trimRange[1]}
+                        onChange={(e) => {
+                          const val = e.target.value === '' ? 100 : parseFloat(e.target.value);
+                          setTrimRange([trimRange[0], val]);
+                        }}
+                        sx={{ width: 100 }}
+                      />
+                    </Stack>
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    Remove path segments near sensitive locations.
+                  </Typography>
+                </Box>
+
                 <Box>
                   <Typography variant="overline" color="text.secondary">Simplification</Typography>
                   <Slider 
@@ -402,10 +469,17 @@ const handleExport = async () => {
             {rawPoints.length > 0 && (
               <>
                 <Polyline 
-                    key={`ghost-${rawPoints.length}`} 
+                    key={`original-${rawPoints.length}`}
                     positions={ghostPoints} 
-                    pathOptions={{ color: '#D3D', weight: 3, opacity: 0.4, dashArray: '5, 10' }} 
+                    pathOptions={{ color: '#555', weight: 1, opacity: 0.2 }} 
                 />
+                
+                <Polyline 
+                    key={`trimmed-${trimmedRawPoints.length}`}
+                    positions={trimmedRawPoints.map(p => [p.x, p.y])} 
+                    pathOptions={{ color: '#D3D', weight: 3, opacity: 0.5, dashArray: '5, 10' }} 
+                />
+
                 <Polyline 
                     positions={simplifiedPoints} 
                     pathOptions={{ color: '#2196f3', weight: 4 }} 
