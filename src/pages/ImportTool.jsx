@@ -126,6 +126,8 @@ const ImportTool = () => {
     if (!file) return;
     setError(null);
 
+    setTrimRange([0, 100]);
+
     const text = await file.text();
     let points = [];
     let name = file.name.replace(/\.[^/.]+$/, "");
