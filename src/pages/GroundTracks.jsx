@@ -58,8 +58,8 @@ const GroundTracks = () => {
   const [loading, setLoading] = useState(true);
   const [anchorEl, setAnchorEl] = useState(null);
   const [candidates, setCandidates] = useState([]);
-  
   const [loadedData, setLoadedData] = useState({}); 
+  const [highlightedId, setHighlightedId] = useState(null);
 
   useEffect(() => {
     fetch('/data/tracks/index.json')
@@ -132,7 +132,8 @@ const GroundTracks = () => {
                     {filtered.map(hike => (
                       <TrackLine 
                         key={hike.id} 
-                        hike={hike} 
+                        hike={hike}
+                        isHighlighted={highlightedId === hike.id}
                         onDataLoaded={(data) => setLoadedData(prev => ({ ...prev, [hike.id]: data }))}
                       />
                     ))}
@@ -146,7 +147,7 @@ const GroundTracks = () => {
 
       <Menu
         open={!!anchorEl}
-        onClose={() => setAnchorEl(null)}
+        onClose={() => { setAnchorEl(null); setHighlightedId(null); }}
         anchorReference="anchorPosition"
         anchorPosition={anchorEl ? { top: anchorEl.mouseY, left: anchorEl.mouseX } : undefined}
       >
@@ -155,7 +156,12 @@ const GroundTracks = () => {
         </Typography>
         <Divider />
         {candidates.map(hike => (
-          <MenuItem key={hike.id} onClick={() => handleHikeSelect(hike)}>
+          <MenuItem
+            key={hike.id}
+            onClick={() => handleHikeSelect(hike)}
+            onMouseEnter={() => setHighlightedId(hike.id)}
+            onMouseLeave={() => setHighlightedId(null)}
+          >
             <ListItemIcon>
               {hike.type === 'Bike ride' ? <DirectionsBikeIcon fontSize="small" /> : <DirectionsWalkIcon fontSize="small" />}
             </ListItemIcon>
@@ -170,7 +176,7 @@ const GroundTracks = () => {
   );
 };
 
-const TrackLine = ({ hike, onDataLoaded }) => {
+const TrackLine = ({ hike, onDataLoaded, isHighlighted }) => {
   const [coordinates, setCoordinates] = useState(hike.preview || []);
   const [isHighRes, setIsHighRes] = useState(false);
 
@@ -189,9 +195,10 @@ const TrackLine = ({ hike, onDataLoaded }) => {
     <Polyline
       positions={coordinates}
       pathOptions={{ 
-        color: hike.type === 'Bike ride' ? '#ef5350' : '#42a5f5', 
-        weight: 4,
-        opacity: isHighRes ? 1 : 0.6
+        color: isHighlighted? '#FFFF00' : (hike.type === 'Bike ride' ? '#ef5350' : '#42a5f5'), 
+        weight: isHighlighted? 8 : 6,
+        opacity: isHighlighted? 1 : (isHighRes ? 1 : 0.6),
+        zIndexOffset: isHighlighted? 1000 : 0,
       }}
       eventHandlers={{ mouseover: loadHighRes }}
     >
