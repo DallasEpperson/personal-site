@@ -247,25 +247,49 @@ const ImportTool = () => {
     };
   }, [rawPoints, metadata, activityType, hasBlog, rawDistMeters]);
 
-  const handleExport = () => {
-    if (generateId() === 'pending') {
-      alert("Please ensure Name and Date are set.");
+ /** Handles the export of the simplified track.
+ * Uses the File System Access API for "Save As" functionality where supported.
+ */
+const handleExport = async () => {
+  const fileName = generateId();
+  if (fileName === 'pending') {
+    alert("Please ensure Name and Date are set.");
+    return;
+  }
+
+  const trackData = JSON.stringify(simplifiedPoints);
+
+  if ('showSaveFilePicker' in window) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: `${fileName}.json`,
+        types: [{
+          description: 'JSON Track File',
+          accept: { 'application/json': ['.json'] },
+        }],
+      });
+      
+      const writable = await handle.createWritable();
+      await writable.write(trackData);
+      await writable.close();
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error("Save As failed:", err);
+      }
       return;
     }
-    
-    // Download the simplified track JSON
-    const trackData = JSON.stringify(simplifiedPoints);
+  } else {
     const blob = new Blob([trackData], { type: 'application/json' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `${manifestEntry.id}.json`;
+    link.download = `${fileName}.json`;
     link.click();
-  
-    // Copy the manifest entry to clipboard
-    const minifiedEntry = minifyManifestEntry(manifestEntry);
-    navigator.clipboard.writeText(minifiedEntry + ",");
-    alert(`Exported: ${manifestEntry.id}.json\nManifest entry copied to clipboard.`);
-  };
+    URL.revokeObjectURL(link.href);
+  }
+
+  navigator.clipboard.writeText(minifyManifestEntry(manifestEntry) + ",");
+  alert(`Manifest entry for ${fileName} copied to clipboard!`);
+};
 
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
