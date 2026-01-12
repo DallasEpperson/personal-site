@@ -79,6 +79,15 @@ const formatToDateTimeLocal = (dateStr) => {
     return cleanDate.substring(0, 16);
 };
 
+/** Stringifies a manifest entry while minifying internal coordinate arrays
+ * for data conservation while maintaining high-level legibility.
+ */
+const minifyManifestEntry = (entry) => {
+  const json = JSON.stringify(entry, null, 2);
+  return json.replace(/\[\s+([\d.-]+),\s+([\d.-]+)\s+\]/g, '[$1,$2]')
+             .replace(/\[\s+([\s\S]*?)\s+\]/g, (match) => match.replace(/\s+/g, ''));
+};
+
 const ImportTool = () => {
   const [rawPoints, setRawPoints] = useState([]); 
   const [metadata, setMetadata] = useState({ name: '', date: '', tz: '' });
@@ -202,7 +211,8 @@ const ImportTool = () => {
     link.click();
   
     // Copy the manifest entry to clipboard
-    navigator.clipboard.writeText(JSON.stringify(manifestEntry, null, 2) + ",");
+    const minifiedEntry = minifyManifestEntry(manifestEntry);
+    navigator.clipboard.writeText(minifiedEntry + ",");
     alert(`Exported: ${manifestEntry.id}.json\nManifest entry copied to clipboard.`);
   };
 
@@ -301,7 +311,7 @@ const ImportTool = () => {
                 </Button>
 
                 <Paper variant="outlined" sx={{ p: 1, bgcolor: 'grey.900', color: 'lime', fontSize: '10px', overflowX: 'auto' }}>
-                    <pre>{JSON.stringify(manifestEntry, null, 2)},</pre>
+                  <pre>{manifestEntry ? minifyManifestEntry(manifestEntry) + ',' : 'No data'}</pre>
                 </Paper>
               </Stack>
             )}
