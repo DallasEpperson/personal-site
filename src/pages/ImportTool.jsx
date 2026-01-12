@@ -259,7 +259,7 @@ const ImportTool = () => {
                 <Polyline 
                     key={`ghost-${rawPoints.length}`} 
                     positions={ghostPoints} 
-                    pathOptions={{ color: '#999', weight: 1, opacity: 0.4, dashArray: '5, 10' }} 
+                    pathOptions={{ color: '#D3D', weight: 3, opacity: 0.4, dashArray: '5, 10' }} 
                 />
                 <Polyline 
                     positions={simplifiedPoints} 
