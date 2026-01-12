@@ -151,6 +151,15 @@ const ImportTool = () => {
       return;
     }
     
+    const lats = rawPoints.map(p => p.x);
+    const lons = rawPoints.map(p => p.y);
+    const trueBounds = [
+      [Math.min(...lats), Math.min(...lons)],
+      [Math.max(...lats), Math.max(...lons)]
+    ];
+  
+    const previewPoints = simplify(rawPoints, 0.002, true).map(p => [p.x, p.y]);
+  
     const trackData = JSON.stringify(simplifiedPoints);
     const blob = new Blob([trackData], { type: 'application/json' });
     const link = document.createElement('a');
@@ -158,15 +167,13 @@ const ImportTool = () => {
     link.download = `${fileName}.json`;
     link.click();
   
-    const previewPoints = simplify(rawPoints, 0.005, true).map(p => [p.x, p.y]);
-  
     const entry = {
       id: fileName,
       name: metadata.name,
       date: metadata.date,
       type: activityType,
       hasBlog: hasBlog,
-      bounds: simplifiedPoints.length > 0 ? [simplifiedPoints[0], simplifiedPoints[simplifiedPoints.length - 1]] : [],
+      bounds: trueBounds, 
       preview: previewPoints,
       trackUrl: `/data/tracks/${fileName}.json`
     };
@@ -276,8 +283,11 @@ const ImportTool = () => {
   "date": "${metadata.date}",
   "type": "${activityType}",
   "hasBlog": ${hasBlog},
-  "bounds": ${JSON.stringify(simplifiedPoints.length > 0 ? [simplifiedPoints[0], simplifiedPoints[simplifiedPoints.length - 1]] : [])},
-  "preview": ${JSON.stringify(simplify(rawPoints, 0.005, true).map(p => [p.x, p.y]))},
+  "bounds": ${JSON.stringify([
+    [Math.min(...rawPoints.map(p=>p.x)), Math.min(...rawPoints.map(p=>p.y))],
+    [Math.max(...rawPoints.map(p=>p.x)), Math.max(...rawPoints.map(p=>p.y))]
+  ])},
+  "preview": ${JSON.stringify(simplify(rawPoints, 0.002, true).map(p => [p.x, p.y]))},
   "trackUrl": "/data/tracks/${generateId()}.json"
 },`}</pre>
                 </Paper>

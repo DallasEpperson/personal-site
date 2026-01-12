@@ -77,7 +77,7 @@ const TrackLine = ({ hike }) => {
         positions={coordinates}
         pathOptions={{ 
           color: hike.type === 'Bike ride' ? '#ef5350' : '#42a5f5', 
-          weight: isHighRes ? 4 : 2,
+          weight: 4, //isHighRes ? 4 : 2,
           opacity: isHighRes ? 1 : 0.6
         }}
         eventHandlers={{
