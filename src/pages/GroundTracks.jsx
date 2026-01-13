@@ -203,13 +203,19 @@ const TrackLine = ({ hike, onDataLoaded, isHighlighted }) => {
       eventHandlers={{ mouseover: loadHighRes }}
     >
       <Tooltip sticky>
-        <Typography variant="body2" sx={{ fontWeight: 700 }}>{hike.name}</Typography>
-        <Typography variant="caption" display="block" color="text.secondary">
+        <Typography variant="body2" sx={{ fontWeight: 700, color: '#222' }}>
+          {hike.name}
+        </Typography>
+        
+        <Typography variant="caption" display="block" sx={{ color: '#666' }}>
           {formatHikeTime(hike.date, hike.tz)} • {hike.type}
         </Typography>
-        <Typography variant="caption" sx={{ fontWeight: 600, color: 'primary.main' }}>
+
+        <Typography variant="caption" sx={{ fontWeight: 600, color: '#1976d2' }}>
           {metersToMiles(hike.distanceMeters)} miles
-          {hike.elevationGainMeters && ` • ${metersToFeet(hike.elevationGainMeters).toLocaleString()} ft gain`}
+          {hike.elevationGainMeters && (
+            <> • {metersToFeet(hike.elevationGainMeters).toLocaleString()} ft gain</>
+          )}
         </Typography>
       </Tooltip>
     </Polyline>
