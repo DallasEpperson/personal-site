@@ -22,13 +22,13 @@ const Home = () => {
       </Typography>
 
       <Stack direction="row" spacing={3} justifyContent="center">
-        <Link href="https://github.com" target="_blank" color="inherit">
+        <Link href="https://github.com/DallasEpperson" target="_blank" color="inherit">
           <GitHubIcon fontSize="large" />
         </Link>
-        <Link href="https://linkedin.com" target="_blank" color="inherit">
+        <Link href="https://www.linkedin.com/in/dallas-epperson-54a57394/" target="_blank" color="inherit">
           <LinkedInIcon fontSize="large" />
         </Link>
-        <Link href="https://strava.com" target="_blank" color="inherit">
+        <Link href="https://www.strava.com/athletes/63714762" target="_blank" color="inherit">
           <DirectionsBikeIcon fontSize="large" />
         </Link>
       </Stack>
