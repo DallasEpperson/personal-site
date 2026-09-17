@@ -771,26 +771,48 @@ const ImportTool = () => {
             ))}
 
             {/* Render fetched OSM trail nodes as interactive small circles */}
-            {osmNodes.map((node) => (
-              <CircleMarker
-                key={`osm-node-${node.id}`}
-                center={[node.lat, node.lon]}
-                radius={editMode === 'none' ? 2 : 4}
-                pathOptions={{
-                  color: editMode === 'append' ? '#1976d2' : (editMode === 'prepend' ? '#9c27b0' : '#ff9800'),
-                  fillColor: editMode === 'append' ? '#2196f3' : (editMode === 'prepend' ? '#ab47bc' : '#ffa726'),
-                  fillOpacity: editMode === 'none' ? 0.3 : 0.85,
-                  weight: 1
-                }}
-                eventHandlers={{
-                  click: () => handleNodeClick(node)
-                }}
-              >
-                <Tooltip direction="top" offset={[0, -5]} opacity={0.9}>
-                  {editMode === 'append' ? 'Click to Append to End' : (editMode === 'prepend' ? 'Click to Prepend to Start' : 'OSM Node (Switch mode to add)')}
-                </Tooltip>
-              </CircleMarker>
-            ))}
+            {osmNodes.map((node) => {
+              const isStart = rawPoints.length > 0 && rawPoints[0].x === node.lat && rawPoints[0].y === node.lon;
+              const isEnd = rawPoints.length > 0 && rawPoints[rawPoints.length - 1].x === node.lat && rawPoints[rawPoints.length - 1].y === node.lon;
+
+              let strokeColor = editMode === 'append' ? '#1976d2' : (editMode === 'prepend' ? '#9c27b0' : '#ff9800');
+              let fillColor = editMode === 'append' ? '#2196f3' : (editMode === 'prepend' ? '#ab47bc' : '#ffa726');
+              let opacity = editMode === 'none' ? 0.3 : 0.85;
+              let radius = editMode === 'none' ? 2 : 4;
+
+              if (isStart) {
+                strokeColor = '#ffffff';
+                fillColor = '#4caf50'; // Green Start
+                opacity = 1;
+                radius = 7;
+              } else if (isEnd) {
+                strokeColor = '#ffffff';
+                fillColor = '#f44336'; // Red End
+                opacity = 1;
+                radius = 7;
+              }
+
+              return (
+                <CircleMarker
+                  key={`osm-node-${node.id}`}
+                  center={[node.lat, node.lon]}
+                  radius={radius}
+                  pathOptions={{
+                    color: strokeColor,
+                    fillColor: fillColor,
+                    fillOpacity: opacity,
+                    weight: isStart || isEnd ? 2 : 1
+                  }}
+                  eventHandlers={{
+                    click: () => handleNodeClick(node)
+                  }}
+                >
+                  <Tooltip direction="top" offset={[0, -5]} opacity={0.9}>
+                    {isStart ? 'START Node' : (isEnd ? 'END Node' : (editMode === 'append' ? 'Click to Append to End' : (editMode === 'prepend' ? 'Click to Prepend to Start' : 'OSM Node (Switch mode to add)')))}
+                  </Tooltip>
+                </CircleMarker>
+              );
+            })}
 
             {/* Active Track rendering */}
             {rawPoints.length > 0 && (
@@ -812,28 +834,22 @@ const ImportTool = () => {
                     pathOptions={{ color: '#2196f3', weight: 4 }} 
                 />
 
-                {/* Start Point Indicator (Green) */}
+                {/* Start Point Indicator (Green Dot - non-blocking) */}
                 <CircleMarker
                   center={[rawPoints[0].x, rawPoints[0].y]}
-                  radius={7}
+                  radius={8}
                   pathOptions={{ color: '#ffffff', fillColor: '#4caf50', fillOpacity: 1, weight: 2 }}
-                >
-                  <Tooltip permanent direction="top" offset={[0, -8]}>
-                    <span style={{ fontWeight: 'bold', color: '#2e7d32' }}>START</span>
-                  </Tooltip>
-                </CircleMarker>
+                  interactive={false}
+                />
 
-                {/* End Point Indicator (Red) */}
+                {/* End Point Indicator (Red Dot - non-blocking) */}
                 {rawPoints.length > 1 && (
                   <CircleMarker
                     center={[rawPoints[rawPoints.length - 1].x, rawPoints[rawPoints.length - 1].y]}
-                    radius={7}
+                    radius={8}
                     pathOptions={{ color: '#ffffff', fillColor: '#f44336', fillOpacity: 1, weight: 2 }}
-                  >
-                    <Tooltip permanent direction="top" offset={[0, -8]}>
-                      <span style={{ fontWeight: 'bold', color: '#c62828' }}>END</span>
-                    </Tooltip>
-                  </CircleMarker>
+                    interactive={false}
+                  />
                 )}
 
                 <MapBounds points={rawPoints} fitTrigger={fitTrigger} />
