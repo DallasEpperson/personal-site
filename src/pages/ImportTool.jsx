@@ -4,16 +4,18 @@ import {
   Slider, Stack, Divider, Alert, Card, CardContent,
   TextField, MenuItem, FormControl, InputLabel, Select,
   Checkbox, FormControlLabel, ToggleButton, ToggleButtonGroup,
-  CircularProgress, Chip, Tooltip as MuiTooltip
+  CircularProgress, Chip, Switch, Tooltip as MuiTooltip
 } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/CloudDownload';
 import AddIcon from '@mui/icons-material/Add';
 import UndoIcon from '@mui/icons-material/Undo';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PanToolIcon from '@mui/icons-material/PanTool';
+import EndIcon from '@mui/icons-material/Flag';
 import CreateIcon from '@mui/icons-material/Create';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import FitScreenIcon from '@mui/icons-material/FitScreen';
+import RouteIcon from '@mui/icons-material/Route';
 import gpxParser from 'gpxparser';
 import simplify from 'simplify-js';
 import tzlookup from 'tz-lookup';
@@ -133,10 +135,18 @@ const ImportTool = () => {
   // OSM Overpass Integration states
   const [mapInstance, setMapInstance] = useState(null);
   const [osmNodes, setOsmNodes] = useState([]);
+  const [osmNodesMap, setOsmNodesMap] = useState(new Map());
   const [osmWays, setOsmWays] = useState([]);
+  const [osmWayObjects, setOsmWayObjects] = useState([]);
   const [isFetchingOsm, setIsFetchingOsm] = useState(false);
   const [osmStatusMsg, setOsmStatusMsg] = useState(null);
   const [editMode, setEditMode] = useState('none'); // 'none' (pan), 'append', 'prepend'
+
+  // Segment Auto-Fill states
+  const [segmentFillEnabled, setSegmentFillEnabled] = useState(true);
+  const [hoveredPreviewPath, setHoveredPreviewPath] = useState(null);
+  const [hoveredPreviewNodes, setHoveredPreviewNodes] = useState(null);
+  const [hoveredSegmentPoints, setHoveredSegmentPoints] = useState(null);
 
   /** Save current points state for undo */
   const pushHistory = useCallback((currentPoints) => {
@@ -286,7 +296,7 @@ const ImportTool = () => {
 
       const data = await res.json();
       const nodesMap = new Map();
-      const waysList = [];
+      const wayObjects = [];
 
       data.elements.forEach(elem => {
         if (elem.type === 'node') {
@@ -295,20 +305,26 @@ const ImportTool = () => {
       });
 
       data.elements.forEach(elem => {
-        if (elem.type === 'way' && elem.nodes) {
+        if (elem.type === 'way' && elem.nodes && elem.nodes.length > 1) {
           const coords = elem.nodes
             .map(nid => nodesMap.get(nid))
             .filter(Boolean)
             .map(n => [n.lat, n.lon]);
           if (coords.length > 1) {
-            waysList.push(coords);
+            wayObjects.push({
+              id: elem.id,
+              nodeIds: elem.nodes,
+              coords
+            });
           }
         }
       });
 
       const nodesArray = Array.from(nodesMap.values());
       setOsmNodes(nodesArray);
-      setOsmWays(waysList);
+      setOsmNodesMap(nodesMap);
+      setOsmWays(wayObjects.map(w => w.coords));
+      setOsmWayObjects(wayObjects);
 
       if (nodesArray.length === 0) {
         setOsmStatusMsg("No trail nodes found in the current map view.");
@@ -323,19 +339,133 @@ const ImportTool = () => {
     }
   };
 
+  /** Helper to calculate intermediate nodes between track anchor and target node along shared OSM ways */
+  const computeIntermediatePath = useCallback((anchorPoint, targetNode) => {
+    if (!anchorPoint || !targetNode || !osmNodes.length || !osmWayObjects.length) {
+      return null;
+    }
+
+    // 1. Find nearest OSM node to anchorPoint (within ~30m tolerance = 0.0003 deg)
+    let minDistSq = 0.0000001;
+    let anchorNodeId = null;
+
+    for (let i = 0; i < osmNodes.length; i++) {
+      const n = osmNodes[i];
+      const dx = n.lat - anchorPoint.x;
+      const dy = n.lon - anchorPoint.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq < minDistSq) {
+        minDistSq = distSq;
+        anchorNodeId = n.id;
+      }
+    }
+
+    if (!anchorNodeId || anchorNodeId === targetNode.id) return null;
+
+    // 2. Search for ways containing both anchorNodeId and targetNode.id
+    const candidatePaths = [];
+
+    for (const way of osmWayObjects) {
+      const idxA = way.nodeIds.indexOf(anchorNodeId);
+      const idxT = way.nodeIds.indexOf(targetNode.id);
+
+      if (idxA !== -1 && idxT !== -1 && idxA !== idxT) {
+        let slicedIds = [];
+        if (idxA < idxT) {
+          slicedIds = way.nodeIds.slice(idxA, idxT + 1);
+        } else {
+          slicedIds = way.nodeIds.slice(idxT, idxA + 1).reverse();
+        }
+
+        const pathNodes = slicedIds
+          .map(nid => osmNodesMap.get(nid))
+          .filter(Boolean);
+
+        if (pathNodes.length >= 2) {
+          candidatePaths.push(pathNodes);
+        }
+      }
+    }
+
+    if (candidatePaths.length === 0) return null;
+
+    // Pick shortest path by number of nodes
+    candidatePaths.sort((a, b) => a.length - b.length);
+    return candidatePaths[0];
+  }, [osmNodes, osmWayObjects, osmNodesMap]);
+
+  /** Mouseover handler for OSM node hover preview */
+  const handleNodeHover = useCallback((node) => {
+    if (!segmentFillEnabled || editMode === 'none' || rawPoints.length === 0) {
+      setHoveredPreviewPath(null);
+      setHoveredPreviewNodes(null);
+      setHoveredSegmentPoints(null);
+      return;
+    }
+
+    const anchorPoint = editMode === 'append' 
+      ? rawPoints[rawPoints.length - 1] 
+      : rawPoints[0];
+
+    const bestPathNodes = computeIntermediatePath(anchorPoint, node);
+
+    if (bestPathNodes && bestPathNodes.length >= 2) {
+      if (editMode === 'append') {
+        const coords = bestPathNodes.map(n => [n.lat, n.lon]);
+        const nodeIds = new Set(bestPathNodes.map(n => n.id));
+        const pointsToAdd = bestPathNodes.slice(1).map(n => ({ x: n.lat, y: n.lon }));
+
+        setHoveredPreviewPath(coords);
+        setHoveredPreviewNodes(nodeIds);
+        setHoveredSegmentPoints(pointsToAdd);
+      } else if (editMode === 'prepend') {
+        const reversedNodes = [...bestPathNodes].reverse();
+        const coords = reversedNodes.map(n => [n.lat, n.lon]);
+        const nodeIds = new Set(reversedNodes.map(n => n.id));
+        const pointsToAdd = reversedNodes.slice(0, -1).map(n => ({ x: n.lat, y: n.lon }));
+
+        setHoveredPreviewPath(coords);
+        setHoveredPreviewNodes(nodeIds);
+        setHoveredSegmentPoints(pointsToAdd);
+      }
+    } else {
+      setHoveredPreviewPath(null);
+      setHoveredPreviewNodes(null);
+      setHoveredSegmentPoints(null);
+    }
+  }, [segmentFillEnabled, editMode, rawPoints, computeIntermediatePath]);
+
+  /** Mouseleave handler for OSM node */
+  const handleNodeLeave = useCallback(() => {
+    setHoveredPreviewPath(null);
+    setHoveredPreviewNodes(null);
+    setHoveredSegmentPoints(null);
+  }, []);
+
   /** Click handler for an OSM node on the map */
   const handleNodeClick = (node) => {
     if (editMode === 'none') return;
 
     pushHistory(rawPoints);
 
-    const newPoint = { x: node.lat, y: node.lon };
+    let newPoints = [];
+
+    if (segmentFillEnabled && hoveredSegmentPoints && hoveredSegmentPoints.length > 0) {
+      newPoints = hoveredSegmentPoints;
+    } else {
+      newPoints = [{ x: node.lat, y: node.lon }];
+    }
 
     if (editMode === 'append') {
-      setRawPoints(prev => [...prev, newPoint]);
+      setRawPoints(prev => [...prev, ...newPoints]);
     } else if (editMode === 'prepend') {
-      setRawPoints(prev => [newPoint, ...prev]);
+      setRawPoints(prev => [...newPoints, ...prev]);
     }
+
+    // Clear hover preview state after insertion
+    setHoveredPreviewPath(null);
+    setHoveredPreviewNodes(null);
+    setHoveredSegmentPoints(null);
 
     // Update timezone if rawPoints was previously empty
     if (rawPoints.length === 0) {
@@ -344,7 +474,7 @@ const ImportTool = () => {
     }
   };
 
-  /** Undo last added/prepended point */
+  /** Undo last added/prepended point or segment */
   const handleUndo = () => {
     if (history.length === 0) return;
     const previous = history[history.length - 1];
@@ -357,6 +487,9 @@ const ImportTool = () => {
     if (window.confirm("Are you sure you want to clear all track points?")) {
       pushHistory(rawPoints);
       setRawPoints([]);
+      setHoveredPreviewPath(null);
+      setHoveredPreviewNodes(null);
+      setHoveredSegmentPoints(null);
     }
   };
 
@@ -531,6 +664,34 @@ const ImportTool = () => {
                   />
                 )}
 
+                {/* Segment Auto-Fill Toggle */}
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={segmentFillEnabled}
+                      onChange={(e) => {
+                        setSegmentFillEnabled(e.target.checked);
+                        if (!e.target.checked) {
+                          setHoveredPreviewPath(null);
+                          setHoveredPreviewNodes(null);
+                          setHoveredSegmentPoints(null);
+                        }
+                      }}
+                      size="small"
+                      color="primary"
+                    />
+                  }
+                  label={
+                    <Stack direction="row" spacing={0.5} alignItems="center">
+                      <RouteIcon fontSize="small" color={segmentFillEnabled ? "primary" : "action"} />
+                      <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                        Segment Auto-Fill
+                      </Typography>
+                    </Stack>
+                  }
+                  sx={{ mb: 1.5, ml: 0, display: 'flex' }}
+                />
+
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
                   POINT INSERTION MODE:
                 </Typography>
@@ -538,7 +699,12 @@ const ImportTool = () => {
                 <ToggleButtonGroup
                   value={editMode}
                   exclusive
-                  onChange={(_, newMode) => setEditMode(newMode || 'none')}
+                  onChange={(_, newMode) => {
+                    setEditMode(newMode || 'none');
+                    setHoveredPreviewPath(null);
+                    setHoveredPreviewNodes(null);
+                    setHoveredSegmentPoints(null);
+                  }}
                   fullWidth
                   size="small"
                   sx={{ mb: 2 }}
@@ -770,17 +936,31 @@ const ImportTool = () => {
               />
             ))}
 
+            {/* Render Preview Path when hovering over a trail node in Segment Auto-Fill mode */}
+            {hoveredPreviewPath && (
+              <Polyline
+                positions={hoveredPreviewPath}
+                pathOptions={{ color: '#00e5ff', weight: 6, opacity: 0.85, dashArray: '6, 8' }}
+              />
+            )}
+
             {/* Render fetched OSM trail nodes as interactive small circles */}
             {osmNodes.map((node) => {
               const isStart = rawPoints.length > 0 && rawPoints[0].x === node.lat && rawPoints[0].y === node.lon;
               const isEnd = rawPoints.length > 0 && rawPoints[rawPoints.length - 1].x === node.lat && rawPoints[rawPoints.length - 1].y === node.lon;
+              const isPreviewNode = hoveredPreviewNodes && hoveredPreviewNodes.has(node.id);
 
               let strokeColor = editMode === 'append' ? '#1976d2' : (editMode === 'prepend' ? '#9c27b0' : '#ff9800');
               let fillColor = editMode === 'append' ? '#2196f3' : (editMode === 'prepend' ? '#ab47bc' : '#ffa726');
               let opacity = editMode === 'none' ? 0.3 : 0.85;
               let radius = editMode === 'none' ? 2 : 4;
 
-              if (isStart) {
+              if (isPreviewNode && !isStart && !isEnd) {
+                strokeColor = '#ffffff';
+                fillColor = '#00e5ff'; // Glowing cyan for intermediate preview nodes
+                opacity = 1;
+                radius = 5;
+              } else if (isStart) {
                 strokeColor = '#ffffff';
                 fillColor = '#4caf50'; // Green Start
                 opacity = 1;
@@ -801,14 +981,16 @@ const ImportTool = () => {
                     color: strokeColor,
                     fillColor: fillColor,
                     fillOpacity: opacity,
-                    weight: isStart || isEnd ? 2 : 1
+                    weight: isStart || isEnd || isPreviewNode ? 2 : 1
                   }}
                   eventHandlers={{
-                    click: () => handleNodeClick(node)
+                    click: () => handleNodeClick(node),
+                    mouseover: () => handleNodeHover(node),
+                    mouseout: () => handleNodeLeave()
                   }}
                 >
                   <Tooltip direction="top" offset={[0, -5]} opacity={0.9}>
-                    {isStart ? 'START Node' : (isEnd ? 'END Node' : (editMode === 'append' ? 'Click to Append to End' : (editMode === 'prepend' ? 'Click to Prepend to Start' : 'OSM Node (Switch mode to add)')))}
+                    {isStart ? 'START Node' : (isEnd ? 'END Node' : (isPreviewNode ? 'Click to Auto-Fill Segment' : (editMode === 'append' ? 'Click to Append' : (editMode === 'prepend' ? 'Click to Prepend' : 'OSM Node'))))}
                   </Tooltip>
                 </CircleMarker>
               );
