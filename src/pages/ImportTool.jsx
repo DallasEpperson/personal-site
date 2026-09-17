@@ -266,7 +266,7 @@ const ImportTool = () => {
 
       const overpassQuery = `[out:json][timeout:25];
         (
-          way["highway"~"path|footway|track|bridleway|steps|pedestrian|cycleway|unclassified|service"](${s},${w},${n},${e});
+          way["highway"](${s},${w},${n},${e});
         );
         out body;
         >;
